@@ -18,7 +18,7 @@ public class GeoMarkerDTO {
     private List<Double> coordinate;
 
     @NotEmpty
-    private GeoDetailsDTO geoDetailsDTO;
+    private GeoDetailsDTO details;
 
     private UUID relatedTaskId;
 

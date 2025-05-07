@@ -1,22 +1,34 @@
 package com.example.report_server.service.impl;
 
+import com.example.report_server.exception.custom.UnknownReportException;
+import com.example.report_server.feignClient.FeignClientEventService;
 import com.example.report_server.feignClient.FeignClientGeoMarkerService;
+import com.example.report_server.model.event.EventResponseDTO;
+import com.example.report_server.model.event.EventStatusDTO;
 import com.example.report_server.model.geo.GeoMarkerDTO;
+import com.example.report_server.model.geo.GeoResponseDTO;
 import com.example.report_server.service.ReportService;
+import com.example.report_server.util.AutoPagingContentStream;
+import com.example.report_server.util.Colors;
 import lombok.RequiredArgsConstructor;
+import org.apache.pdfbox.pdmodel.font.PDType0Font;
+import org.apache.pdfbox.pdmodel.graphics.color.PDColor;
+import org.apache.pdfbox.pdmodel.graphics.color.PDDeviceRGB;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
-import org.apache.pdfbox.pdmodel.font.PDType1Font;
-import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.IOException;
-import java.util.List;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
 
 @Service
 @RequiredArgsConstructor
@@ -25,64 +37,415 @@ public class ReportServiceImpl implements ReportService {
     @Autowired
     private final FeignClientGeoMarkerService feignClientGeoMarkerService;
 
+    @Autowired
+    private final FeignClientEventService feignClientEventService;
+
+    @Value("${bold.font.file}")
+    private String boldFontFile;
+
+    @Value("${regular.font.file}")
+    private String regularFontFile;
+
     private static final Logger logger = LoggerFactory.getLogger(ReportServiceImpl.class);
+    private final int x = 50;
+    private final int headerSize = 16;
+    private final int regular1Size = 14;
+    private final int regular2Size = 10;
+    private int pageSize = 100;
 
     @Override
-    public byte[] getGeneralReport(String token) throws IOException {
+    public byte[] getGeneralReport(String token) {
         try (PDDocument document = new PDDocument()) {
-            PDPage page = new PDPage();
-            document.addPage(page);
+            PDType0Font bold = PDType0Font.load(document, new File(boldFontFile));
+            PDType0Font regular = PDType0Font.load(document, new File(regularFontFile));
 
-            // 2. Подготавливаем поток для записи
-            try (PDPageContentStream contentStream = new PDPageContentStream(document, page)) {
-                // 3. Настройка шрифтов
-                contentStream.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA_BOLD), 16);
+            try (AutoPagingContentStream autoStream = new AutoPagingContentStream(document, bold, regular)) {
 
-                // 4. Заголовок отчета
-                contentStream.beginText();
-                contentStream.newLineAtOffset(50, 700); // Позиция (x, y)
-                contentStream.showText("Report");
-                contentStream.endText();
+                addTitle(autoStream,
+                        bold, headerSize, "Общий статистический отчет по очагам",
+                        regular, regular2Size, "Отчет собран за весь период.");
 
-                // 5. Основные данные
-//                contentStream.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 12);
-//                contentStream.beginText();
-//                contentStream.newLineAtOffset(50, 650);
-//                contentStream.showText("Всего очагов: " + stats.getTotalOutbreaks());
-//                contentStream.newLineAtOffset(0, -20);
-//                contentStream.showText("Активные: " + stats.getActiveOutbreaks());
-//                contentStream.newLineAtOffset(0, -20);
-//                contentStream.showText("Устранено: " + stats.getResolvedOutbreaks());
-//                contentStream.endText();
-//
-//                // 6. Таблица с распределением по типам земель
-//                contentStream.beginText();
-//                contentStream.newLineAtOffset(50, 550);
-//                contentStream.showText("Распределение по типам земель:");
-//                contentStream.endText();
-//
-//                float y = 530;
-//                for (Map.Entry<String, Integer> entry : stats.getOutbreaksByLandType().entrySet()) {
-//                    contentStream.beginText();
-//                    contentStream.newLineAtOffset(50, y);
-//                    contentStream.showText(entry.getKey() + ": " + entry.getValue());
-//                    contentStream.endText();
-//                    y -= 20;
-//                }
+                autoStream.addText(bold, "Краткая сводка по основным показателям:",
+                        regular1Size, x, Colors.GRAY[0], Colors.GRAY[1], Colors.GRAY[2]);
+                autoStream.setLastY(autoStream.getLastY() - autoStream.getLineSpacing());
+
+                GeoResponseDTO allMarkers = feignClientGeoMarkerService.getAllMarkers(token, 0, pageSize);
+                addDigitWithLabel(autoStream, bold, headerSize, allMarkers.getTotalItems(), Colors.YELLOW, regular, regular1Size, "очагов было создано", x);
+                autoStream.setLastY(autoStream.getLastY() + 3 * autoStream.getLineSpacing());
+
+                GeoResponseDTO markersByFinalStatus = feignClientGeoMarkerService.getMarkersByStatus(token, 0, pageSize, "Завершено");
+                addDigitWithLabel(autoStream, bold, headerSize, markersByFinalStatus.getTotalItems(), Colors.GREEN, regular, regular1Size, "очагов было обработано", x + 200);
+
+
+                double processedArea = calculateSquare(feignClientGeoMarkerService.getMarkersByStatusAndLand(token, 0, pageSize, "Завершено", null), token, "Завершено");
+                addDigitWithLabel(autoStream, bold, headerSize, (int) processedArea, Colors.GREEN, regular, regular1Size, "площади обработано", x);
+                autoStream.setLastY(autoStream.getLastY() + 3 * autoStream.getLineSpacing());
+
+                double allArea = calculateSquare(feignClientGeoMarkerService.getMarkersByStatusAndLand(token, 0, pageSize, null, null), token, null);
+                addDigitWithLabel(autoStream, bold, headerSize, (int) (allArea - processedArea), Colors.RED, regular, regular1Size, "площадь распространения", x + 200);
+
+                EventResponseDTO allEvents = feignClientEventService.getAllEvents(token, 0, pageSize);
+                addDigitWithLabel(autoStream, bold, headerSize, allEvents.getTotalItems(), Colors.YELLOW, regular, regular1Size, "всего мероприятий", x);
+                autoStream.setLastY(autoStream.getLastY() + 3 * autoStream.getLineSpacing());
+
+                EventResponseDTO finishedEvents = feignClientEventService.getEventsByStatus(token, 0, pageSize, "Выполнено");
+                addDigitWithLabel(autoStream, bold, headerSize, finishedEvents.getTotalItems(), Colors.GREEN, regular, regular1Size, "выполнено мероприятий", x + 200);
+
+
+                autoStream.setLastY(autoStream.getLastY() - 2 * autoStream.getLineSpacing());
+                autoStream.checkAvailableSpace(220 + 2 * autoStream.getLineSpacing());
+                autoStream.addText(bold, "Распределение очагов по текущим статусам:", regular1Size, x, Colors.GRAY[0], Colors.GRAY[1], Colors.GRAY[2]);
+
+                paintPieChartByStatus(autoStream, allMarkers.getTotalItems(), token, regular, "geo");
+                autoStream.setLastY(autoStream.getLastY() - (220 + autoStream.getLineSpacing()));
+
+                autoStream.addText(bold, "Распределение очагов по типу обрабатываемых земель и статусам:",
+                        regular1Size, x, Colors.GRAY[0], Colors.GRAY[1], Colors.GRAY[2]);
+                autoStream.setLastY(autoStream.getLastY() - autoStream.getLineSpacing());
+
+                drawTable(autoStream, x, token, regular, "geo");
+
+                autoStream.addText(bold, "Распределение мероприятий по текущим статусам:", regular1Size, x, Colors.GRAY[0], Colors.GRAY[1], Colors.GRAY[2]);
+                paintPieChartByStatus(autoStream, allEvents.getTotalItems(), token, regular, "event");
+                autoStream.setLastY(autoStream.getLastY() - (220 + autoStream.getLineSpacing()));
+
+                autoStream.addText(bold, "Распределение мероприятий по виду и типу проблемы:",
+                        regular1Size, x, Colors.GRAY[0], Colors.GRAY[1], Colors.GRAY[2]);
+                autoStream.setLastY(autoStream.getLastY() - autoStream.getLineSpacing());
+
+                drawTable(autoStream, x, token, regular, "event");
+
+                autoStream.addText(bold, "Организации, работающие над очагами:",
+                        regular1Size, x, Colors.GRAY[0], Colors.GRAY[1], Colors.GRAY[2]);
+
+                drawList(autoStream, getContractingOrganizations(token), regular);
             }
 
-            // 7. Сохраняем PDF в ByteArrayOutputStream
-            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-            document.save(outputStream);
-            return outputStream.toByteArray();
+            return saveDocumentToBytes(document);
+        } catch (IOException e) {
+            throw new UnknownReportException(e.getMessage());
         }
     }
 
-    private List<GeoMarkerDTO> getAllGeoMarkers(String token) {
-        return feignClientGeoMarkerService.getAllMarkers(token);
+    private void drawList(AutoPagingContentStream autoStream, List<String> items, PDType0Font font) throws IOException {
+        autoStream.checkAvailableSpace(items.size() * 30 + 50);
+
+        float itemHeight = 25f;
+        float itemWidth = 500f;
+        float startY = autoStream.getLastY();
+
+        for (int i = 0; i < items.size(); i++) {
+            String org = items.get(i) != null ? items.get(i) : "Не указана";
+
+            boolean isEven = i % 2 == 0;
+            PDColor bgColor = new PDColor(
+                    isEven ? new float[]{0.95f, 0.95f, 0.95f} : new float[]{1, 1, 1},
+                    PDDeviceRGB.INSTANCE
+            );
+
+            PDPageContentStream contentStream = autoStream.getCurrentStream();
+            contentStream.setNonStrokingColor(bgColor);
+            contentStream.addRect(x, startY - itemHeight, itemWidth, itemHeight);
+            contentStream.fill();
+
+            float[] grayColor = new float[]{
+                    Colors.LIGHTBLUE[0]/255f,
+                    Colors.LIGHTBLUE[1]/255f,
+                    Colors.LIGHTBLUE[2]/255f
+            };
+            contentStream.setNonStrokingColor(new PDColor(grayColor, PDDeviceRGB.INSTANCE));
+            contentStream.addRect(x + 5, startY - itemHeight + 7, 10, 10);
+            contentStream.fill();
+
+            autoStream.addCustomText(
+                    contentStream,
+                    font,
+                    org,
+                    12,
+                    (int)(x + 20),
+                    (int)(startY - itemHeight/2 - 4),
+                    Colors.GRAY[0], Colors.GRAY[1], Colors.GRAY[2]
+            );
+
+            startY -= itemHeight;
+        }
+
+        autoStream.setLastY((int) (startY - 20));
     }
 
-    private List<String> getWorkStages(String token) {
-        return feignClientGeoMarkerService.getWorkStages(token);
+    private void drawTable(AutoPagingContentStream autoStream, float x, String token, PDType0Font font, String type) throws IOException {
+        List<String> statuses;
+        Map<String, Map<String, Integer>> data;
+
+        if (Objects.equals(type, "geo")) {
+            statuses = feignClientGeoMarkerService.getWorkStages(token);
+            data = prepareDataGeoByStatusTable(token);
+        }
+        else {
+            statuses = getStringFromTypesDto(feignClientEventService.getAllProblemTypes(token));
+            data = prepareDataEventByTypesTable(token, statuses);
+        }
+
+        float colWidth = (Objects.equals(type, "geo") ? 100f : 110f), rowHeight = 25f;
+        autoStream.checkAvailableSpace((int) (rowHeight * data.size() + autoStream.getLineSpacing()));
+        float y = autoStream.getLastY();
+
+        // Заголовки
+        drawCell(autoStream, x, y, colWidth * (Objects.equals(type, "geo") ? 2 : 1), rowHeight, Objects.equals(type, "geo") ? "Тип земли" : "Тип мероприятия", true, font);
+        for (int i = 0; i < statuses.size(); i++) {
+            drawCell(autoStream, x + colWidth * (i + (Objects.equals(type, "geo") ? 2 : 1)), y, colWidth, rowHeight, statuses.get(i), true, font);
+        }
+
+        // Данные
+        int row = 0;
+        for (var entry : data.entrySet()) {
+            y -= rowHeight;
+            drawCell(autoStream, x, y, colWidth * (Objects.equals(type, "geo") ? 2 : 1), rowHeight, entry.getKey(), row%2 == 0, font);
+
+            for (int i = 0; i < statuses.size(); i++) {
+                int count = entry.getValue().getOrDefault(statuses.get(i), 0);
+                drawCell(autoStream, x + colWidth * (i + (Objects.equals(type, "geo") ? 2 : 1)), y, colWidth, rowHeight, String.valueOf(count), row%2 == 0, font);
+            }
+            row++;
+        }
+
+        autoStream.updateY(autoStream.getLastY() - ((statuses.size() + 5) * (int) rowHeight));
+    }
+
+    private void drawCell(AutoPagingContentStream autoStream, float x, float y, float w, float h, String text, boolean isEven, PDType0Font font) throws IOException {
+        PDPageContentStream contentStream = autoStream.getCurrentStream();
+
+        contentStream.setNonStrokingColor(new PDColor(isEven ? new float[]{0.95f,0.95f,0.95f} : new float[]{1,1,1}, PDDeviceRGB.INSTANCE));
+        contentStream.addRect(x, y, w, h);
+        contentStream.fill();
+
+        autoStream.addCustomText(contentStream, font, text, 12, (int) (x + 5), (int) (y + h/2 - 4), Colors.GRAY[0], Colors.GRAY[1], Colors.GRAY[2]);
+    }
+
+    private void paintPieChartByStatus(AutoPagingContentStream autoStream, Integer totalItems, String token, PDType0Font font, String type) throws IOException {
+        Map<String, Integer> data = new LinkedHashMap<>();
+        int[][] colors = {Colors.RED, Colors.YELLOW, Colors.GREEN};
+
+
+        if (Objects.equals(type, "geo")) {
+            List<String> statuses = feignClientGeoMarkerService.getWorkStages(token);
+
+            for (String status: statuses) {
+                GeoResponseDTO response = feignClientGeoMarkerService.getMarkersByStatus(token, 0, pageSize, status);
+                data.put(status, response.getTotalItems() * 100 / totalItems);
+            }
+
+        }
+        else if (Objects.equals(type, "event")) {
+            List<EventStatusDTO> statuses = feignClientEventService.getAllStatuses(token);
+            for (EventStatusDTO status: statuses) {
+                EventResponseDTO response = feignClientEventService.getEventsByStatus(token, 0, pageSize, status.getCode());
+                data.put(status.getCode(), response.getTotalItems() * 100 / totalItems);
+            }
+            colors = new int[][]{Colors.RED, Colors.YELLOW, Colors.ORANGE, Colors.GRAY, Colors.PURPLE, Colors.GREEN};
+        }
+
+        PDPageContentStream contentStream = autoStream.getCurrentStream();
+        float radius = 100;
+        float centerX = x + radius;
+        float centerY = autoStream.getLastY() - radius;
+        float startAngle = 0;
+
+        int colorIndex = 0;
+        for (Map.Entry<String, Integer> entry : data.entrySet()) {
+            if (entry.getValue() == 0) {
+                colorIndex++;
+                continue;
+            }
+
+            float extent = 360 * ((float) entry.getValue() / 100);
+
+            int[] rgb = colors[colorIndex % colors.length];
+            contentStream.setNonStrokingColor(new PDColor(new float[]{rgb[0]/255f, rgb[1]/255f, rgb[2]/255f}, PDDeviceRGB.INSTANCE));
+
+            drawPieSegment(contentStream, centerX, centerY, radius, startAngle, extent);
+
+            startAngle += extent;
+            colorIndex++;
+        }
+
+        float legendX = centerX + radius + 70;
+        float legendY = centerY + radius - autoStream.getLineSpacing();
+        drawLegend(autoStream, legendX, legendY, data, colors, font);
+    }
+
+    private void drawPieSegment(PDPageContentStream contentStream, float centerX, float centerY, float radius,
+                                float startAngle, float extent) throws IOException {
+
+        contentStream.moveTo(centerX, centerY);
+        int segments = (int) Math.ceil(extent);
+
+        for (int i = 0; i <= segments; i++) {
+            float angle = startAngle + (extent * i / segments);
+            float x = centerX + radius * (float) Math.cos(Math.toRadians(angle));
+            float y = centerY + radius * (float) Math.sin(Math.toRadians(angle));
+
+            if (i == 0) {
+                contentStream.lineTo(x, y);
+            } else {
+                contentStream.lineTo(x, y);
+            }
+        }
+
+        contentStream.lineTo(centerX, centerY);
+        contentStream.closePath();
+        contentStream.fill();
+    }
+
+    private void drawLegend(AutoPagingContentStream autoStream,
+                            float startX, float startY,
+                            Map<String, Integer> data,
+                            int[][] colors, PDType0Font font) throws IOException {
+        float boxSize = 15;
+        float spacing = 25;
+        float textOffset = 20;
+
+        PDPageContentStream contentStream = autoStream.getCurrentStream();
+
+        int colorIndex = 0;
+        for (Map.Entry<String, Integer> entry : data.entrySet()) {
+
+            int[] rgb = colors[colorIndex % colors.length];
+            contentStream.setNonStrokingColor(
+                    new PDColor(new float[]{rgb[0]/255f, rgb[1]/255f, rgb[2]/255f},
+                            PDDeviceRGB.INSTANCE
+                    ));
+            contentStream.addRect(startX, startY, boxSize, boxSize);
+            contentStream.fill();
+
+            autoStream.addCustomText(contentStream, font, String.format("%s (%d%%)", entry.getKey(), entry.getValue()), regular1Size, (int) (startX + textOffset), (int) (startY + boxSize/2 - 4), Colors.GRAY[0], Colors.GRAY[1], Colors.GRAY[2]);
+
+            startY -= spacing;
+            colorIndex++;
+        }
+    }
+
+    private void addDigitWithLabel(AutoPagingContentStream stream,
+                                   PDType0Font digitFont, Integer digitSize, Integer digit, int[] digitColor,
+                                   PDType0Font labelFont, Integer labelSize, String labelText, int x) throws IOException {
+        stream.addText(digitFont, String.valueOf(digit), digitSize, x, digitColor[0], digitColor[1], digitColor[2]);
+        stream.addText(labelFont, labelText, labelSize, x, Colors.GRAY[0], Colors.GRAY[1], Colors.GRAY[2]);
+        stream.setLastY(stream.getLastY() - stream.getLineSpacing());
+    }
+
+    private void addTitle(AutoPagingContentStream stream,
+                          PDType0Font titleFont, Integer titleSize, String titleText,
+                          PDType0Font subtitleFont, Integer subtitleSize, String subtitleText) throws IOException {
+        stream.addText(titleFont, titleText, titleSize, x, Colors.GRAY[0], Colors.GRAY[1], Colors.GRAY[2]);
+        if (subtitleText != null) {
+            stream.addText(subtitleFont, subtitleText, subtitleSize, x, Colors.GRAY[0], Colors.GRAY[1], Colors.GRAY[2]);
+        }
+        stream.addText(subtitleFont, "Дата создания отчета: " + LocalDate.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy")), subtitleSize, x, Colors.GRAY[0], Colors.GRAY[1], Colors.GRAY[2]);
+        stream.setLastY(stream.getLastY() - stream.getLineSpacing());
+    }
+
+    private PDPage createPage(PDDocument document) {
+        PDPage page = new PDPage();
+        document.addPage(page);
+        return page;
+    }
+
+    private byte[] saveDocumentToBytes(PDDocument document) throws IOException {
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        document.save(outputStream);
+        return outputStream.toByteArray();
+    }
+
+    private float[] rgbToFloat(int r, int g, int b) {
+        return new float[] {
+                r / 255.0f,
+                g / 255.0f,
+                b / 255.0f
+        };
+    }
+
+    private Map<String, Map<String, Integer>> prepareDataGeoByStatusTable(String token) {
+        Map<String, Map<String, Integer>> result = new HashMap<>();
+
+        List<String> landTypes = feignClientGeoMarkerService.getLandTypes(token);
+        List<String> statuses = feignClientGeoMarkerService.getWorkStages(token);
+
+        for (String landType: landTypes) {
+            Map<String, Integer> countByStatus = new HashMap<>();
+            for (String status: statuses) {
+                GeoResponseDTO res = feignClientGeoMarkerService.getMarkersByStatusAndLand(token, 0, pageSize, status, landType);
+                countByStatus.put(status, res.getTotalItems());
+            }
+            result.put(landType, countByStatus);
+        }
+        return result;
+    }
+
+    private Map<String, Map<String, Integer>> prepareDataEventByTypesTable(String token, List<String> problemTypes) {
+        Map<String, Map<String, Integer>> result = new HashMap<>();
+
+        List<String> eventTypes = getStringFromTypesDto(feignClientEventService.getAllEventTypes(token));
+
+        for (String eventType: eventTypes) {
+            Map<String, Integer> countByProblem = new HashMap<>();
+            for (String problem: problemTypes) {
+                EventResponseDTO res = feignClientEventService.getEventsByTypes(token, 0, pageSize, eventType, problem);
+                countByProblem.put(problem, res.getTotalItems());
+            }
+            result.put(eventType, countByProblem);
+        }
+        return result;
+    }
+
+    private List<String> getStringFromTypesDto(List<EventStatusDTO> list) {
+        List<String> result = new ArrayList<>();
+        for (EventStatusDTO item: list) {
+            result.add(item.getCode());
+        }
+        return result;
+    }
+
+    private double calculateSquare(GeoResponseDTO markers, String token, String workStage) {
+        double result = 0;
+        int curPage = markers.getCurrentPage();
+        int countPages = markers.getTotalPages();
+        while (curPage < countPages) {
+            for (GeoMarkerDTO marker : markers.getGeoPoints()) {
+                try {
+                    result += marker.getDetails().getSquare();
+
+                }
+                catch (NullPointerException e) {
+                    result += 0;
+                }
+            }
+            curPage += 1;
+            markers = feignClientGeoMarkerService.getMarkersByStatusAndLand(token, curPage, pageSize, workStage, null);
+        }
+        return result;
+    }
+
+    private List<String> getContractingOrganizations(String token) {
+        Set<String> organizations = new HashSet<>();
+        GeoResponseDTO response = feignClientGeoMarkerService.getAllMarkers(token, 0, pageSize);
+
+        int curPage = 0;
+        int countPages = response.getTotalPages();
+
+        while (curPage < countPages) {
+            for (GeoMarkerDTO marker : response.getGeoPoints()) {
+                try {
+                    organizations.add(marker.getDetails().getContractingOrganization());
+
+                }
+                catch (NullPointerException e) {
+                    continue;
+                }
+            }
+            curPage += 1;
+            response = feignClientGeoMarkerService.getAllMarkers(token, curPage, pageSize);
+        }
+
+        return new ArrayList<>(organizations);
     }
 }
