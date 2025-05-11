@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 
 import java.util.List;
+import java.util.UUID;
 
 @FeignClient(name="event-manager", url="${event.manager.host}")
 public interface FeignClientEventService {
@@ -29,4 +30,8 @@ public interface FeignClientEventService {
 
     @GetMapping("/event/getAll")
     EventResponseDTO getEventsByTypes(@RequestHeader("Authorization") String token, @RequestParam int page, @RequestParam int size, @RequestParam String eventType, @RequestParam String problemAreaType);
+
+    @GetMapping("/event/getAll")
+    EventResponseDTO getEventsByGeoMarker(@RequestHeader("Authorization") String token, @RequestParam int page, @RequestParam int size, @RequestParam UUID geoPointId);
+
 }

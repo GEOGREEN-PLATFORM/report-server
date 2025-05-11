@@ -143,6 +143,24 @@ public class AutoPagingContentStream implements AutoCloseable {
         updateY(lastY - lineSpacing);
     }
 
+    public void drawHorizontalLine() throws IOException {
+        checkAvailableSpace(lineSpacing * 2);
+
+        float pageWidth = 595;
+        float startX = 50;
+        float endX = pageWidth - 50;
+        float yPos = lastY - 10;
+        float lineWidth = 0.5f;
+
+        currentStream.setStrokingColor(new PDColor(new float[]{0.8f, 0.8f, 0.8f}, PDDeviceRGB.INSTANCE));
+        currentStream.setLineWidth(lineWidth);
+        currentStream.moveTo(startX, yPos);
+        currentStream.lineTo(endX, yPos);
+        currentStream.stroke();
+
+        updateY((int)(yPos - lineSpacing * 2));
+    }
+
     @Override
     public void close() throws IOException {
         if (currentStream != null) {

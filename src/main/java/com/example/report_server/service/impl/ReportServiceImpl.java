@@ -4,6 +4,7 @@ import com.example.report_server.exception.custom.UnknownReportException;
 import com.example.report_server.feignClient.FeignClientEventService;
 import com.example.report_server.feignClient.FeignClientFileServer;
 import com.example.report_server.feignClient.FeignClientGeoMarkerService;
+import com.example.report_server.model.event.EventDTO;
 import com.example.report_server.model.event.EventResponseDTO;
 import com.example.report_server.model.event.EventStatusDTO;
 import com.example.report_server.model.geo.GeoMarkerDTO;
@@ -146,11 +147,72 @@ public class ReportServiceImpl implements ReportService {
                         regular, regular2Size, "Ссылка на очаг: http://сылка на очаг.ру");
 
                 drawHotbed(id, token, autoStream, regular);
+                drawEvents(id, token, autoStream, bold, regular);
             }
 
             return saveDocumentToBytes(document);
         } catch (IOException e) {
             throw new UnknownReportException(e.getMessage());
+        }
+    }
+
+    private void drawEvents(UUID id, String token, AutoPagingContentStream autoStream, PDType0Font bold, PDType0Font regular) throws IOException {
+        EventResponseDTO events = feignClientEventService.getEventsByGeoMarker(token, 0, pageSize, id);
+
+        if (events.getTotalItems() == 0) {
+            return;
+        }
+
+        float bulletWidth = 100f;
+        float bulletHeight = 20f;
+        float bulletSpace = 15f;
+        int fontSize = 12;
+
+        autoStream.updateY((autoStream.getLastY() - autoStream.getLineSpacing()));
+        autoStream.addText(bold, "Мероприятия по очагу",
+                headerSize, x, Colors.GRAY[0], Colors.GRAY[1], Colors.GRAY[2]);
+
+        int curPage = events.getCurrentPage();
+        for (EventDTO event: events.getContent()) {
+            autoStream.drawHorizontalLine();
+
+            PDPageContentStream contentStream = autoStream.getCurrentStream();
+            autoStream.addCustomText(contentStream, regular, "\"" + event.getName() + "\"",
+                    regular1Size, x, autoStream.getLastY(), Colors.GRAY[0], Colors.GRAY[1], Colors.GRAY[2]);
+            drawBullet(autoStream, Colors.VERYLIGHTPURPLE, Colors.LIGHTPURPLE, regular, event.getStatusCode(), 545 - bulletWidth - bulletSpace, autoStream.getLastY() + (bulletHeight + bulletSpace) / 2, bulletHeight, bulletWidth, fontSize);
+            autoStream.updateY((int) (autoStream.getLastY() - bulletSpace));
+
+
+            drawBullet(autoStream, Colors.VERYLIGHTYELLOW, Colors.LIGHTYELLOW, regular, "Дата создания: " + event.getStartDate().toString().substring(0, 10), x, autoStream.getLastY(), bulletHeight - 8, bulletWidth + 50, 8);
+            drawBullet(autoStream, Colors.VERYLIGHTORANGE, Colors.LIGHTORANGE, regular, "Дата обновления: " + event.getLastUpdateDate().toString().substring(0, 10), x + bulletWidth + 50 + bulletSpace, autoStream.getLastY(), bulletHeight - 8, bulletWidth + 50, 8);
+            drawBullet(autoStream, Colors.VERYLIGHTRED, Colors.LIGHTRED, regular, "Дата завершения: " + event.getEndDate().toString().substring(0, 10), x + (bulletWidth + 50 + bulletSpace) * 2, autoStream.getLastY(), bulletHeight - 8, bulletWidth + 50, 8);
+            autoStream.updateY((int) (autoStream.getLastY() - autoStream.getLineSpacing() * 2));
+
+            contentStream = autoStream.getCurrentStream();
+            autoStream.addCustomLineText(
+                    contentStream, regular, "Описание: " + event.getDescription(), fontSize,
+                    x, autoStream.getLastY(),
+                    Colors.GRAY[0], Colors.GRAY[1], Colors.GRAY[2]
+            );
+
+            drawBullet(autoStream, Colors.VERYLIGHTGREEN, Colors.LIGHTGREEN, regular, event.getProblemAreaType(), x, autoStream.getLastY(), bulletHeight, bulletWidth, fontSize);
+            drawBullet(autoStream, Colors.VERYLIGHTRED, Colors.LIGHTRED, regular, event.getEventType(), x + bulletWidth + bulletSpace, autoStream.getLastY(), bulletHeight, bulletWidth + 20, fontSize);
+            autoStream.updateY((int) (autoStream.getLastY() - bulletHeight - bulletSpace));
+
+
+            contentStream = autoStream.getCurrentStream();
+            autoStream.addCustomText(
+                    contentStream, regular, "Владелец: " + event.getAuthor().getLastName() + " " + event.getAuthor().getFirstName() + " " + event.getAuthor().getPatronymic(), 10,
+                    x, autoStream.getLastY(),
+                    Colors.GRAY[0], Colors.GRAY[1], Colors.GRAY[2]
+            );
+            contentStream = autoStream.getCurrentStream();
+            autoStream.addCustomText(
+                    contentStream, regular, "Оператор: " + event.getOperator().getLastName() + " " + event.getOperator().getFirstName() + " " + event.getOperator().getPatronymic(), 10,
+                    x, (int) (autoStream.getLastY() - bulletSpace),
+                    Colors.GRAY[0], Colors.GRAY[1], Colors.GRAY[2]
+            );
+            autoStream.updateY((int) (autoStream.getLastY() - bulletSpace * 2));
         }
     }
 
