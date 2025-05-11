@@ -2,11 +2,13 @@ package com.example.report_server.service.impl;
 
 import com.example.report_server.exception.custom.UnknownReportException;
 import com.example.report_server.feignClient.FeignClientEventService;
+import com.example.report_server.feignClient.FeignClientFileServer;
 import com.example.report_server.feignClient.FeignClientGeoMarkerService;
 import com.example.report_server.model.event.EventResponseDTO;
 import com.example.report_server.model.event.EventStatusDTO;
 import com.example.report_server.model.geo.GeoMarkerDTO;
 import com.example.report_server.model.geo.GeoResponseDTO;
+import com.example.report_server.model.image.ImageDTO;
 import com.example.report_server.service.ReportService;
 import com.example.report_server.util.AutoPagingContentStream;
 import com.example.report_server.util.Colors;
@@ -14,6 +16,7 @@ import lombok.RequiredArgsConstructor;
 import org.apache.pdfbox.pdmodel.font.PDType0Font;
 import org.apache.pdfbox.pdmodel.graphics.color.PDColor;
 import org.apache.pdfbox.pdmodel.graphics.color.PDDeviceRGB;
+import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,6 +42,9 @@ public class ReportServiceImpl implements ReportService {
 
     @Autowired
     private final FeignClientEventService feignClientEventService;
+
+    @Autowired
+    private final FeignClientFileServer feignClientFileServer;
 
     @Value("${bold.font.file}")
     private String boldFontFile;
@@ -127,6 +133,87 @@ public class ReportServiceImpl implements ReportService {
         }
     }
 
+    @Override
+    public byte[] getGeoMarkerReport(String token, UUID id) {
+        try (PDDocument document = new PDDocument()) {
+            PDType0Font bold = PDType0Font.load(document, new File(boldFontFile));
+            PDType0Font regular = PDType0Font.load(document, new File(regularFontFile));
+
+            try (AutoPagingContentStream autoStream = new AutoPagingContentStream(document, bold, regular)) {
+
+                addTitle(autoStream,
+                        bold, headerSize, "Детальный отчет по очагу",
+                        regular, regular2Size, "Ссылка на очаг: http://сылка на очаг.ру");
+
+                drawHotbed(id, token, autoStream, regular);
+            }
+
+            return saveDocumentToBytes(document);
+        } catch (IOException e) {
+            throw new UnknownReportException(e.getMessage());
+        }
+    }
+
+    private void drawHotbed(UUID id, String token, AutoPagingContentStream autoStream, PDType0Font font) throws IOException {
+        GeoMarkerDTO geoMarker = feignClientGeoMarkerService.getGeoMarkerById(token, id);
+        float bulletWidth = 100f;
+        float bulletHeight = 20f;
+        float bulletSpace = 15f;
+        int fontSize = 12;
+
+        drawBullet(autoStream, Colors.VERYLIGHTGREEN, Colors.LIGHTGREEN, font, geoMarker.getDetails().getProblemAreaType(), x, autoStream.getLastY(), bulletHeight, bulletWidth, fontSize);
+        drawBullet(autoStream, Colors.VERYLIGHTRED, Colors.LIGHTRED, font, geoMarker.getDetails().getWorkStage(), x + bulletWidth + bulletSpace, autoStream.getLastY(), bulletHeight, bulletWidth, fontSize);
+        drawBullet(autoStream, Colors.VERYLIGHTPURPLE, Colors.LIGHTPURPLE, font, "Плотность: " + geoMarker.getDetails().getDensity().toString(), x + (bulletWidth + bulletSpace) * 2, autoStream.getLastY(), bulletHeight, bulletWidth + 50, fontSize);
+        autoStream.updateY((int) (autoStream.getLastY() - bulletHeight - bulletSpace));
+        drawBullet(autoStream, Colors.VERYLIGHTYELLOW, Colors.LIGHTYELLOW, font, "Дата создания: " + geoMarker.getDetails().getCreationDate().format(DateTimeFormatter.ofPattern("yyyy-MM-dd")), x, autoStream.getLastY(), bulletHeight - 8, bulletWidth + 50, 8);
+        drawBullet(autoStream, Colors.VERYLIGHTORANGE, Colors.LIGHTORANGE, font, "Дата обновления: " + geoMarker.getDetails().getUpdateDate().format(DateTimeFormatter.ofPattern("yyyy-MM-dd")), x + bulletWidth + 50 + bulletSpace, autoStream.getLastY(), bulletHeight - 8, bulletWidth + 50, 8);
+        autoStream.updateY((int) (autoStream.getLastY() - bulletHeight - bulletSpace));
+
+        PDPageContentStream contentStream = autoStream.getCurrentStream();
+        autoStream.addCustomText(
+                contentStream, font, "Владелец - " + geoMarker.getDetails().getOwner() + ", Организация - " + geoMarker.getDetails().getContractingOrganization(), 10,
+                x, autoStream.getLastY(),
+                Colors.GRAY[0], Colors.GRAY[1], Colors.GRAY[2]
+        );
+        autoStream.updateY((int) (autoStream.getLastY() - bulletSpace));
+
+        drawImages(autoStream, geoMarker.getDetails().getImages(), x, 100, 100, 5);
+
+        contentStream = autoStream.getCurrentStream();
+        autoStream.addCustomLineText(
+                contentStream, font, "Комментарий: " + geoMarker.getDetails().getComment(), fontSize,
+                x, autoStream.getLastY(),
+                Colors.GRAY[0], Colors.GRAY[1], Colors.GRAY[2]
+        );
+
+        drawBullet(autoStream, Colors.VERYLIGHTGREEN, Colors.LIGHTGREEN, font, "Тип земли: " + geoMarker.getDetails().getLandType(), x, autoStream.getLastY(), bulletHeight - 8, bulletWidth + 70, 8);
+        drawBullet(autoStream, Colors.VERYLIGHTORANGE, Colors.LIGHTORANGE, font, "Метод обработки: " + geoMarker.getDetails().getEliminationMethod(), x + bulletWidth + 70 + bulletSpace, autoStream.getLastY(), bulletHeight - 8, bulletWidth + 50, 8);
+        autoStream.updateY((int) (autoStream.getLastY() - bulletHeight - bulletSpace));
+
+    }
+
+    private void drawImages(AutoPagingContentStream autoStream, List<ImageDTO> images, int x, float width, float height, int countPerLine) throws IOException {
+        float imageSpace = 10f;
+
+        PDPageContentStream contentStream = autoStream.getCurrentStream();
+        int count = 0;
+        int row = 0;
+        for (ImageDTO image: images) {
+            PDImageXObject photo = PDImageXObject.createFromByteArray(
+                    autoStream.getDocument(),
+                    feignClientFileServer.downloadImage(image.getFullImageId()),
+                    "photo"
+            );
+            contentStream.drawImage(photo, (float) x + (height + imageSpace) * (count), autoStream.getLastY() - height - (height + imageSpace) * row, width, height);
+            count += 1;
+            if (count == countPerLine) {
+                row += 1;
+                count = 0;
+            }
+        }
+        autoStream.updateY((int) (autoStream.getLastY() - (height + imageSpace) * (row + 1) - imageSpace));
+    }
+
     private void drawList(AutoPagingContentStream autoStream, List<String> items, PDType0Font font) throws IOException {
         autoStream.checkAvailableSpace(items.size() * 30 + 50);
 
@@ -138,39 +225,52 @@ public class ReportServiceImpl implements ReportService {
             String org = items.get(i) != null ? items.get(i) : "Не указана";
 
             boolean isEven = i % 2 == 0;
-            PDColor bgColor = new PDColor(
-                    isEven ? new float[]{0.95f, 0.95f, 0.95f} : new float[]{1, 1, 1},
-                    PDDeviceRGB.INSTANCE
-            );
 
-            PDPageContentStream contentStream = autoStream.getCurrentStream();
-            contentStream.setNonStrokingColor(bgColor);
-            contentStream.addRect(x, startY - itemHeight, itemWidth, itemHeight);
-            contentStream.fill();
-
-            float[] grayColor = new float[]{
-                    Colors.LIGHTBLUE[0]/255f,
-                    Colors.LIGHTBLUE[1]/255f,
-                    Colors.LIGHTBLUE[2]/255f
-            };
-            contentStream.setNonStrokingColor(new PDColor(grayColor, PDDeviceRGB.INSTANCE));
-            contentStream.addRect(x + 5, startY - itemHeight + 7, 10, 10);
-            contentStream.fill();
-
-            autoStream.addCustomText(
-                    contentStream,
-                    font,
-                    org,
-                    12,
-                    (int)(x + 20),
-                    (int)(startY - itemHeight/2 - 4),
-                    Colors.GRAY[0], Colors.GRAY[1], Colors.GRAY[2]
-            );
+            drawBullet(autoStream, isEven ? new int[]{242, 242, 242} : new int[]{255, 255, 255}, Colors.LIGHTBLUE, font, org, x, startY, itemHeight, itemWidth, 12);
 
             startY -= itemHeight;
         }
 
         autoStream.setLastY((int) (startY - 20));
+    }
+
+    private void drawBullet(AutoPagingContentStream autoStream, int[] bgColor, int[] bulletColor, PDType0Font textFont, String text, float x, float y, float height, float width, int fontSize) throws IOException {
+        PDPageContentStream contentStream = autoStream.getCurrentStream();
+
+        PDColor bg = new PDColor(new float[]{
+                bgColor[0]/255f,
+                bgColor[1]/255f,
+                bgColor[2]/255f
+        },
+                PDDeviceRGB.INSTANCE
+        );
+
+        PDColor bullet = new PDColor(new float[]{
+                bulletColor[0]/255f,
+                bulletColor[1]/255f,
+                bulletColor[2]/255f
+        },
+                PDDeviceRGB.INSTANCE
+        );
+
+        contentStream.setLineWidth(5f);
+        contentStream.setLineJoinStyle(1);
+        contentStream.setStrokingColor(bg);
+        contentStream.setNonStrokingColor(bg);
+        contentStream.addRect(x, y - height, width, height);
+        contentStream.fillAndStroke();
+
+        contentStream.setLineWidth(3f);
+        contentStream.setLineJoinStyle(1);
+        contentStream.setNonStrokingColor(bullet);
+        contentStream.addRect(x + 5, y - height + (height - 10) / 2, 10, 10);
+        contentStream.fillAndStroke();
+
+        autoStream.addCustomText(
+                contentStream, textFont, text, fontSize,
+                (int)(x + 20), (int)(y - height / 2 - 4),
+                Colors.GRAY[0], Colors.GRAY[1], Colors.GRAY[2]
+        );
     }
 
     private void drawTable(AutoPagingContentStream autoStream, float x, String token, PDType0Font font, String type) throws IOException {

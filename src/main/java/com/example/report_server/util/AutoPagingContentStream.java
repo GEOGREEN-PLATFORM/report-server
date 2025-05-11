@@ -94,6 +94,55 @@ public class AutoPagingContentStream implements AutoCloseable {
         contentStream.endText();
     }
 
+    public void addCustomLineText(PDPageContentStream contentStream,
+                              PDType0Font font,
+                              String text,
+                              int fontSize,
+                              int posX,
+                              int posY,
+                              int r, int g, int b) throws IOException {
+        contentStream.setNonStrokingColor(new PDColor(rgbToFloat(r, g, b), PDDeviceRGB.INSTANCE));
+        contentStream.setFont(font, fontSize);
+
+        final float maxWidth = 500f;
+        final float lineHeight = fontSize * 1.2f;
+        final float scale = fontSize / 1000f;
+
+        contentStream.beginText();
+        contentStream.newLineAtOffset(posX, posY);
+
+        StringBuilder currentLine = new StringBuilder();
+        float currentWidth = 0;
+
+        for (String word : text.split(" ")) {
+            float wordWidth = font.getStringWidth(word) * scale;
+            float potentialWidth = currentWidth + (currentLine.length() > 0 ? font.getStringWidth(" ") * scale : 0) + wordWidth;
+
+            if (potentialWidth > maxWidth && currentLine.length() > 0) {
+                contentStream.showText(currentLine.toString());
+                contentStream.newLineAtOffset(0, -lineHeight);
+                currentLine.setLength(0);
+                currentWidth = 0;
+            }
+
+            if (currentLine.length() > 0) {
+                currentLine.append(" ");
+                currentWidth += font.getStringWidth(" ") * scale;
+            }
+
+            currentLine.append(word);
+            currentWidth += wordWidth;
+        }
+
+        if (currentLine.length() > 0) {
+            contentStream.showText(currentLine.toString());
+            updateY(lastY - lineSpacing);
+        }
+
+        contentStream.endText();
+        updateY(lastY - lineSpacing);
+    }
+
     @Override
     public void close() throws IOException {
         if (currentStream != null) {

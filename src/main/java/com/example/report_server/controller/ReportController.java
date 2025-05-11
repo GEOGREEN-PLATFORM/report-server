@@ -9,10 +9,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestHeader;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.UUID;
 
 import static com.example.report_server.util.AuthorizationStringUtil.AUTHORIZATION;
 
@@ -38,7 +37,21 @@ public class ReportController {
         byte[] pdfBytes = reportService.getGeneralReport(token);
         return ResponseEntity.ok()
                 .header("Content-Type", "application/pdf")
-                .header("Content-Disposition", "attachment; filename=\"hogweed_report.pdf\"")
+                .header("Content-Disposition", "attachment; filename=\"general_report.pdf\"")
+                .body(pdfBytes);
+    }
+
+    @GetMapping("/geomarker-report/{id}")
+    @Operation(
+            summary = "Отчет по конкретному очагу",
+            description = "Автоматически создает отчет по конкретному очагу"
+    )
+    public ResponseEntity<byte[]> getGeoMarkerReport(@RequestHeader("Authorization") String token, @PathVariable UUID id) {
+        logger.info("Получен запрос на получение отчета по очагу: {}", id);
+        byte[] pdfBytes = reportService.getGeoMarkerReport(token, id);
+        return ResponseEntity.ok()
+                .header("Content-Type", "application/pdf")
+                .header("Content-Disposition", "attachment; filename=\"geomarker_report.pdf\"")
                 .body(pdfBytes);
     }
 }
