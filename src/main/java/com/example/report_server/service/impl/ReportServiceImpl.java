@@ -4,9 +4,7 @@ import com.example.report_server.exception.custom.UnknownReportException;
 import com.example.report_server.feignClient.FeignClientEventService;
 import com.example.report_server.feignClient.FeignClientFileServer;
 import com.example.report_server.feignClient.FeignClientGeoMarkerService;
-import com.example.report_server.model.event.EventDTO;
-import com.example.report_server.model.event.EventResponseDTO;
-import com.example.report_server.model.event.EventStatusDTO;
+import com.example.report_server.model.event.*;
 import com.example.report_server.model.geo.GeoMarkerDTO;
 import com.example.report_server.model.geo.GeoResponseDTO;
 import com.example.report_server.model.image.ImageDTO;
@@ -147,6 +145,7 @@ public class ReportServiceImpl implements ReportService {
                         regular, regular2Size, "Ссылка на очаг: http://сылка на очаг.ру");
 
                 drawHotbed(id, token, autoStream, regular);
+                autoStream.updateY(0);
                 drawEvents(id, token, autoStream, bold, regular);
             }
 
@@ -172,47 +171,106 @@ public class ReportServiceImpl implements ReportService {
         autoStream.addText(bold, "Мероприятия по очагу",
                 headerSize, x, Colors.GRAY[0], Colors.GRAY[1], Colors.GRAY[2]);
 
-        int curPage = events.getCurrentPage();
-        for (EventDTO event: events.getContent()) {
-            autoStream.drawHorizontalLine();
+        int cur = events.getCurrentPage();
+        int total = events.getTotalPages();
+        while (cur < total) {
+            for (EventDTO event : events.getContent()) {
+                autoStream.drawHorizontalLine(x);
 
-            PDPageContentStream contentStream = autoStream.getCurrentStream();
-            autoStream.addCustomText(contentStream, regular, "\"" + event.getName() + "\"",
-                    regular1Size, x, autoStream.getLastY(), Colors.GRAY[0], Colors.GRAY[1], Colors.GRAY[2]);
-            drawBullet(autoStream, Colors.VERYLIGHTPURPLE, Colors.LIGHTPURPLE, regular, event.getStatusCode(), 545 - bulletWidth - bulletSpace, autoStream.getLastY() + (bulletHeight + bulletSpace) / 2, bulletHeight, bulletWidth, fontSize);
-            autoStream.updateY((int) (autoStream.getLastY() - bulletSpace));
-
-
-            drawBullet(autoStream, Colors.VERYLIGHTYELLOW, Colors.LIGHTYELLOW, regular, "Дата создания: " + event.getStartDate().toString().substring(0, 10), x, autoStream.getLastY(), bulletHeight - 8, bulletWidth + 50, 8);
-            drawBullet(autoStream, Colors.VERYLIGHTORANGE, Colors.LIGHTORANGE, regular, "Дата обновления: " + event.getLastUpdateDate().toString().substring(0, 10), x + bulletWidth + 50 + bulletSpace, autoStream.getLastY(), bulletHeight - 8, bulletWidth + 50, 8);
-            drawBullet(autoStream, Colors.VERYLIGHTRED, Colors.LIGHTRED, regular, "Дата завершения: " + event.getEndDate().toString().substring(0, 10), x + (bulletWidth + 50 + bulletSpace) * 2, autoStream.getLastY(), bulletHeight - 8, bulletWidth + 50, 8);
-            autoStream.updateY((int) (autoStream.getLastY() - autoStream.getLineSpacing() * 2));
-
-            contentStream = autoStream.getCurrentStream();
-            autoStream.addCustomLineText(
-                    contentStream, regular, "Описание: " + event.getDescription(), fontSize,
-                    x, autoStream.getLastY(),
-                    Colors.GRAY[0], Colors.GRAY[1], Colors.GRAY[2]
-            );
-
-            drawBullet(autoStream, Colors.VERYLIGHTGREEN, Colors.LIGHTGREEN, regular, event.getProblemAreaType(), x, autoStream.getLastY(), bulletHeight, bulletWidth, fontSize);
-            drawBullet(autoStream, Colors.VERYLIGHTRED, Colors.LIGHTRED, regular, event.getEventType(), x + bulletWidth + bulletSpace, autoStream.getLastY(), bulletHeight, bulletWidth + 20, fontSize);
-            autoStream.updateY((int) (autoStream.getLastY() - bulletHeight - bulletSpace));
+                PDPageContentStream contentStream = autoStream.getCurrentStream();
+                autoStream.addCustomText(contentStream, regular, "\"" + event.getName() + "\"",
+                        regular1Size, x, autoStream.getLastY(), Colors.GRAY[0], Colors.GRAY[1], Colors.GRAY[2]);
+                drawBullet(autoStream, Colors.VERYLIGHTPURPLE, Colors.LIGHTPURPLE, regular, event.getStatusCode(), 545 - bulletWidth - bulletSpace, autoStream.getLastY() + (bulletHeight + bulletSpace) / 2, bulletHeight, bulletWidth, fontSize);
+                autoStream.updateY((int) (autoStream.getLastY() - bulletSpace));
 
 
-            contentStream = autoStream.getCurrentStream();
-            autoStream.addCustomText(
-                    contentStream, regular, "Владелец: " + event.getAuthor().getLastName() + " " + event.getAuthor().getFirstName() + " " + event.getAuthor().getPatronymic(), 10,
-                    x, autoStream.getLastY(),
-                    Colors.GRAY[0], Colors.GRAY[1], Colors.GRAY[2]
-            );
-            contentStream = autoStream.getCurrentStream();
-            autoStream.addCustomText(
-                    contentStream, regular, "Оператор: " + event.getOperator().getLastName() + " " + event.getOperator().getFirstName() + " " + event.getOperator().getPatronymic(), 10,
-                    x, (int) (autoStream.getLastY() - bulletSpace),
-                    Colors.GRAY[0], Colors.GRAY[1], Colors.GRAY[2]
-            );
-            autoStream.updateY((int) (autoStream.getLastY() - bulletSpace * 2));
+                drawBullet(autoStream, Colors.VERYLIGHTYELLOW, Colors.LIGHTYELLOW, regular, "Дата создания: " + event.getStartDate().toString().substring(0, 10), x, autoStream.getLastY(), bulletHeight - 8, bulletWidth + 50, 8);
+                drawBullet(autoStream, Colors.VERYLIGHTORANGE, Colors.LIGHTORANGE, regular, "Дата обновления: " + event.getLastUpdateDate().toString().substring(0, 10), x + bulletWidth + 50 + bulletSpace, autoStream.getLastY(), bulletHeight - 8, bulletWidth + 50, 8);
+                drawBullet(autoStream, Colors.VERYLIGHTRED, Colors.LIGHTRED, regular, "Дата завершения: " + event.getEndDate().toString().substring(0, 10), x + (bulletWidth + 50 + bulletSpace) * 2, autoStream.getLastY(), bulletHeight - 8, bulletWidth + 50, 8);
+                autoStream.updateY((int) (autoStream.getLastY() - autoStream.getLineSpacing() * 2));
+
+                contentStream = autoStream.getCurrentStream();
+                autoStream.addCustomLineText(
+                        contentStream, regular, "Описание: " + event.getDescription(), fontSize,
+                        x, autoStream.getLastY(),
+                        Colors.GRAY[0], Colors.GRAY[1], Colors.GRAY[2]
+                );
+
+                drawBullet(autoStream, Colors.VERYLIGHTGREEN, Colors.LIGHTGREEN, regular, event.getProblemAreaType(), x, autoStream.getLastY(), bulletHeight, bulletWidth, fontSize);
+                drawBullet(autoStream, Colors.VERYLIGHTRED, Colors.LIGHTRED, regular, event.getEventType(), x + bulletWidth + bulletSpace, autoStream.getLastY(), bulletHeight, bulletWidth + 20, fontSize);
+                autoStream.updateY((int) (autoStream.getLastY() - bulletHeight - bulletSpace * 2));
+
+
+                contentStream = autoStream.getCurrentStream();
+                autoStream.addCustomText(
+                        contentStream, regular, "Владелец: " + event.getAuthor().getLastName() + " " + event.getAuthor().getFirstName() + " " + event.getAuthor().getPatronymic(), 10,
+                        x, autoStream.getLastY(),
+                        Colors.GRAY[0], Colors.GRAY[1], Colors.GRAY[2]
+                );
+                contentStream = autoStream.getCurrentStream();
+                autoStream.addCustomText(
+                        contentStream, regular, "Оператор: " + event.getOperator().getLastName() + " " + event.getOperator().getFirstName() + " " + event.getOperator().getPatronymic(), 10,
+                        x, (int) (autoStream.getLastY() - bulletSpace),
+                        Colors.GRAY[0], Colors.GRAY[1], Colors.GRAY[2]
+                );
+                autoStream.updateY((int) (autoStream.getLastY() - bulletSpace * 2 - autoStream.getLineSpacing()));
+
+                drawHistory(event.getId(), token, autoStream, bold, regular);
+            }
+
+            cur += 1;
+            events = feignClientEventService.getEventsByGeoMarker(token, cur, pageSize, id);
+        }
+    }
+
+    private void drawHistory(UUID eventId, String token, AutoPagingContentStream autoStream, PDType0Font bold, PDType0Font regular) throws IOException {
+        HistoryResponseDTO histories = feignClientEventService.getHistoryByEvent(token, eventId, 0, pageSize);
+
+        if (histories.getTotalItems() == 0) {
+            return;
+        }
+        PDPageContentStream contentStream = autoStream.getCurrentStream();
+        autoStream.addCustomText(contentStream, bold, "История работ по мероприятию",
+                regular1Size, x + 50, autoStream.getLastY(), Colors.GRAY[0], Colors.GRAY[1], Colors.GRAY[2]);
+
+
+        float bulletWidth = 100f;
+        float bulletHeight = 20f;
+        float bulletSpace = 15f;
+        int fontSize = 12;
+
+        int cur = histories.getCurrentPage();
+        int total = histories.getTotalPages();
+        while (cur < total) {
+            for (HistoryDTO history : histories.getContent()) {
+                autoStream.drawHorizontalLine(x + 50);
+                drawBullet(autoStream, Colors.VERYLIGHTORANGE, Colors.LIGHTORANGE, regular, history.getRecordType(), x + 50, autoStream.getLastY(), bulletHeight, bulletWidth, fontSize);
+                autoStream.updateY((int) (autoStream.getLastY() - bulletHeight - bulletSpace));
+
+                drawBullet(autoStream, Colors.VERYLIGHTGREEN, Colors.LIGHTGREEN, regular, "Дата создания: " + history.getCreateDate().toString().substring(0, 10), x + 50, autoStream.getLastY(), bulletHeight - 8, bulletWidth + 50, 8);
+                drawBullet(autoStream, Colors.VERYLIGHTPURPLE, Colors.LIGHTPURPLE, regular, "Дата работы: " + history.getRecordDate().toString().substring(0, 10), x + bulletWidth + 50 + bulletSpace + 50, autoStream.getLastY(), bulletHeight - 8, bulletWidth + 50, 8);
+                autoStream.updateY((int) (autoStream.getLastY() - bulletHeight + 8 - bulletSpace * 2));
+
+                contentStream = autoStream.getCurrentStream();
+                autoStream.addCustomText(
+                        contentStream, regular, "Оператор: " + history.getOperator().getLastName() + " " + history.getOperator().getFirstName() + " " + history.getOperator().getPatronymic(), 10,
+                        x + 50, autoStream.getLastY(),
+                        Colors.GRAY[0], Colors.GRAY[1], Colors.GRAY[2]
+                );
+                autoStream.updateY(autoStream.getLastY() - autoStream.getLineSpacing());
+
+                drawImages(autoStream, history.getPhotos(), x + 50, 100, 100, 4);
+
+                contentStream = autoStream.getCurrentStream();
+                autoStream.addCustomLineText(
+                        contentStream, regular, "Описание: " + history.getDescription(), fontSize,
+                        x + 50, autoStream.getLastY(),
+                        Colors.GRAY[0], Colors.GRAY[1], Colors.GRAY[2]
+                );
+            }
+
+            cur += 1;
+            histories = feignClientEventService.getHistoryByEvent(token, eventId, cur, pageSize);
         }
     }
 

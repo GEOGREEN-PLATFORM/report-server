@@ -143,11 +143,10 @@ public class AutoPagingContentStream implements AutoCloseable {
         updateY(lastY - lineSpacing);
     }
 
-    public void drawHorizontalLine() throws IOException {
+    public void drawHorizontalLine(float startX) throws IOException {
         checkAvailableSpace(lineSpacing * 2);
 
         float pageWidth = 595;
-        float startX = 50;
         float endX = pageWidth - 50;
         float yPos = lastY - 10;
         float lineWidth = 0.5f;
