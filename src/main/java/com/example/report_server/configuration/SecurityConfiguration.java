@@ -13,7 +13,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 @Configuration
 public class SecurityConfiguration {
-    private static final String[] ALLOWED_URLS = {"/v3/api-docs/**", "/swagger-ui/**"};
+    private static final String[] ALLOWED_URLS = {"/v3/api-docs/**", "/swagger-ui/**", "/actuator/**"};
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
