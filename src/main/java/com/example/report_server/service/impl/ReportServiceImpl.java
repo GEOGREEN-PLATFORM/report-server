@@ -46,10 +46,10 @@ public class ReportServiceImpl implements ReportService {
     private final FeignClientFileServer feignClientFileServer;
 
     @Value("${bold.font.file}")
-    private String boldFontFile;
+    protected String boldFontFile;
 
     @Value("${regular.font.file}")
-    private String regularFontFile;
+    protected String regularFontFile;
 
     private static final Logger logger = LoggerFactory.getLogger(ReportServiceImpl.class);
     private final int x = 50;
@@ -158,7 +158,7 @@ public class ReportServiceImpl implements ReportService {
     private void drawEvents(UUID id, String token, AutoPagingContentStream autoStream, PDType0Font bold, PDType0Font regular) throws IOException {
         EventResponseDTO events = feignClientEventService.getEventsByGeoMarker(token, 0, pageSize, id);
 
-        if (events.getTotalItems() == 0) {
+        if (events.getTotalItems() == null || events.getTotalItems() == 0) {
             return;
         }
 
@@ -529,6 +529,8 @@ public class ReportServiceImpl implements ReportService {
 
         int colorIndex = 0;
         for (Map.Entry<String, Integer> entry : data.entrySet()) {
+            if (entry == null)
+                continue;
 
             int[] rgb = colors[colorIndex % colors.length];
             contentStream.setNonStrokingColor(
@@ -610,6 +612,8 @@ public class ReportServiceImpl implements ReportService {
             Map<String, Integer> countByProblem = new HashMap<>();
             for (String problem: problemTypes) {
                 EventResponseDTO res = feignClientEventService.getEventsByTypes(token, 0, pageSize, eventType, problem);
+                if (res == null)
+                    continue;
                 countByProblem.put(problem, res.getTotalItems());
             }
             result.put(eventType, countByProblem);

@@ -90,6 +90,8 @@ public class AutoPagingContentStream implements AutoCloseable {
 
         contentStream.beginText();
         contentStream.newLineAtOffset(posX, posY);
+        if (text == null)
+            text = "";
         contentStream.showText(text);
         contentStream.endText();
     }

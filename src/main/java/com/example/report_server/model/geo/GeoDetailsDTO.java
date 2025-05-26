@@ -8,6 +8,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -17,6 +18,7 @@ import static com.example.report_server.util.DateUtil.UTC;
 
 @Data
 @AllArgsConstructor
+@NoArgsConstructor
 @Schema(description = "Сущность детальной информации об очаге")
 public class GeoDetailsDTO {
 
