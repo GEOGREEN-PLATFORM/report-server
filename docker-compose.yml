@@ -1,0 +1,47 @@
+version: '3.8'
+services:
+  report-server:
+    image: client:0.0.7
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8181:8080"
+    depends_on:
+      - report-server-db
+    environment:
+      - KEYCLOAK_URL=http://217.198.13.249:30096
+      - GEOSPATIAL_SERVER_HOST=http://217.198.13.249:30091
+      - EVENT_MANAGER_HOST:http://localhost:8080
+      - FILE_SERVER_HOST:http://217.198.13.249:30092
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://report-server-db/reports
+    networks:
+      - shared_network
+
+
+  report-server-db:
+    image: postgres:14.7-alpine
+    hostname: report-server-db
+    ports:
+      - "5438:5432"
+    environment:
+      POSTGRES_DB: reports
+      POSTGRES_USER: reports-admin
+      POSTGRES_PASSWORD: password
+      POSTGRES_HOST_AUTH_METHOD: md5
+    volumes:
+      - report-server:/var/lib/postgresql/data
+    command: [
+      "postgres",
+      "-c", "listen_addresses=*",
+      "-c", "password_encryption=md5"
+    ]
+    networks:
+      - shared_network
+
+volumes:
+  report-server:
+
+networks:
+  shared_network:
+    external: true
